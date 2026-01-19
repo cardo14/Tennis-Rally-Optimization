@@ -1,107 +1,16 @@
-import numpy as np
-from collections import defaultdict
 import pandas as pd
+import torch
+import torch.nn as nn
+from torch.utils.data import Dataset, DataLoader
+import numpy as np
 
-def build_markov_matrix(parsed_rallies):
-    """
-    parsed_rallies: list of dicts per point, e.g.
-    [
-        {'shots': [('FH',3), ('BH',2), ...], 'PtWinner': 1 or 2},
-        ...
-    ]
-    """
-    # Step 1: build all possible states
-    states_set = set()
-    for point in parsed_rallies:
-        for shot in point['shots']:
-            states_set.add(shot)  # shot is already a tuple (shot_type, dir)
-
-    # Add absorbing states
-    states_set.add('ServerWin')
-    states_set.add('ReturnerWin')
-
-    # Map state -> index
-    state2idx = {s:i for i,s in enumerate(states_set)}
-    idx2state = {i:s for s,i in state2idx.items()}
-    n = len(state2idx)
-
-    # Step 2: count transitions
-    trans_counts = np.zeros((n,n), dtype=int)
-
-    for point in parsed_rallies:
-        shots = point['shots']
-        if len(shots) == 0:
-            continue
-
-        for i in range(len(shots)-1):
-            s_from = state2idx[shots[i]]
-            s_to   = state2idx[shots[i+1]]
-            trans_counts[s_from, s_to] += 1
-
-        # last shot -> absorbing state
-        last_shot = shots[-1]
-        s_from = state2idx[last_shot]
-        s_to = state2idx['ServerWin'] if point['PtWinner']==1 else state2idx['ReturnerWin']
-        trans_counts[s_from, s_to] += 1
-
-    # Step 3: convert counts -> probabilities
-    trans_probs = np.zeros_like(trans_counts, dtype=float)
-    for i in range(n):
-        row_sum = trans_counts[i].sum()
-        if row_sum > 0:
-            trans_probs[i] = trans_counts[i] / row_sum
-        else:
-            # if no outgoing transitions, make absorbing
-            if idx2state[i] not in ['ServerWin','ReturnerWin']:
-                trans_probs[i, i] = 1.0
-
-    return trans_probs, state2idx, idx2state
-
-
-def compute_absorbing_probs(trans_probs, idx2state):
-    """
-    trans_probs: n x n matrix of transition probabilities
-    idx2state: dict mapping index -> state
-    Returns: dict of state -> (prob_server_wins, prob_returner_wins)
-    """
-    n = trans_probs.shape[0]
-
-    # Identify absorbing vs transient states
-    absorbing_idx = [i for i,s in idx2state.items() if s in ['ServerWin','ReturnerWin']]
-    transient_idx = [i for i in range(n) if i not in absorbing_idx]
-
-    # Q = transient -> transient, R = transient -> absorbing
-    Q = trans_probs[np.ix_(transient_idx, transient_idx)]
-    R = trans_probs[np.ix_(transient_idx, absorbing_idx)]
-
-    # Fundamental matrix: N = (I-Q)^-1
-    I = np.eye(len(Q))
-    N = np.linalg.inv(I - Q)
-
-    # Absorbing probabilities: B = N * R
-    B = N @ R
-
-    # Map results back to state names
-    absorbing_states = [idx2state[i] for i in absorbing_idx]
-    results = {}
-    for idx, s_idx in enumerate(transient_idx):
-        s_name = idx2state[s_idx]
-        results[s_name] = {
-            'prob_server_wins': B[idx, absorbing_states.index('ServerWin')],
-            'prob_returner_wins': B[idx, absorbing_states.index('ReturnerWin')]
-        }
-
-    # Absorbing states themselves
-    results['ServerWin'] = {'prob_server_wins': 1.0, 'prob_returner_wins': 0.0}
-    results['ReturnerWin'] = {'prob_server_wins': 0.0, 'prob_returner_wins': 1.0}
-
-    return results
-
+# Parse rally string into shots
 def parse_rally(rally_str):
+    # check if rally string is valid
     if not rally_str or not isinstance(rally_str, str):
         return []
 
-    # --- constants ---
+    # define what characters mean in the rally notation
     serve_digits = {'0', '4', '5', '6'}
     serve_letters = {'n', 'w', 'd', 'x', 'g', 'e', '!', 'c', 'V', 'P', 'Q', 'S', 'R'}
     terminal_symbols = {'*', '@', '#', 'C'}
@@ -117,25 +26,27 @@ def parse_rally(rally_str):
     i = 0
     n = len(rally_str)
 
-    # --- skip serve encoding ---
+    # skip the serve part at the beginning
     while i < n:
         if rally_str[i] in serve_digits or rally_str[i] in serve_letters or rally_str[i] == '+':
             i += 1
         else:
             break
 
-    # --- parse rally ---
+    # go through each character and extract shots
     while i < n:
         ch = rally_str[i]
 
-        # terminal without explicit final shot (rare)
+        # if we hit an ending symbol, stop
         if ch in terminal_symbols:
             break
 
+        # if not a shot letter, skip it
         if ch not in shot_letters:
             i += 1
             continue
 
+        # figure out if forehand or backhand
         shot = {
             "shot": (
                 "FH" if ch in fh_letters else
@@ -143,57 +54,33 @@ def parse_rally(rally_str):
                 "OTHER"
             ),
             "dir": None,
-            "depth": None,
-            "approach": False,
-            "net_cord": False,
-            "stop_volley": False,
-            "position": None,
-            "ending": None,
-            "error_type": None,
         }
 
         i += 1
 
-        # optional modifiers (order-independent, spec-legal)
+        # skip modifier symbols like +, ;, etc
         while i < n:
             c = rally_str[i]
-
-            if c == '+':
-                shot["approach"] = True
-            elif c == ';':
-                shot["net_cord"] = True
-            elif c == '^':
-                shot["stop_volley"] = True
-            elif c == '-':
-                shot["position"] = "net"
-            elif c == '=':
-                shot["position"] = "baseline"
+            if c in {'+', ';', '^', '-', '='}:
+                i += 1
             else:
                 break
-            i += 1
 
-        # direction
+        # get direction if it exists
         if i < n and rally_str[i] in {'0', '1', '2', '3'}:
             shot["dir"] = int(rally_str[i])
             i += 1
 
-        # depth (returns only, optional)
+        # skip depth number if it exists
         if i < n and rally_str[i] in {'7', '8', '9', '0'}:
-            shot["depth"] = int(rally_str[i])
             i += 1
 
-        # error type (optional)
+        # skip error type if it exists
         if i < n and rally_str[i] in error_types:
-            shot["error_type"] = rally_str[i]
             i += 1
 
-        # forced / unforced / winner
+        # check if point ended on this shot
         if i < n and rally_str[i] in {'*', '@', '#'}:
-            shot["ending"] = (
-                "winner" if rally_str[i] == '*' else
-                "unforced_error" if rally_str[i] == '@' else
-                "forced_error"
-            )
             i += 1
             shots.append(shot)
             break
@@ -202,12 +89,8 @@ def parse_rally(rally_str):
 
     return shots
 
+# convert shot dict to simple tuple
 def simplify_rally(parsed_rally):
-    """
-    Take output from your existing parser and reduce it to a list of (shot, dir) tuples.
-    Ignore depth, approach, error symbols, etc.
-    Example: [{'shot':'f','dir':2, ...}, ...] -> [('F',2), ...]
-    """
     simplified = []
     for shot_info in parsed_rally:
         shot_type = shot_info.get('shot', '').upper()
@@ -215,32 +98,268 @@ def simplify_rally(parsed_rally):
         simplified.append((shot_type, dir))
     return simplified
 
+# convert shot tuple to a number
+def encode_shot(shot):
+    shot_type, direction = shot
+    
+    # if no direction, default to 0
+    if direction is None:
+        direction = 0
+    
+    # FH gets 0-3, BH gets 4-7, OTHER gets 8
+    if shot_type == 'FH':
+        return direction
+    elif shot_type == 'BH':
+        return 4 + direction
+    else:
+        return 8
+
+# dataset class to organize our data
+class TennisDataset(Dataset):
+    def __init__(self, df):
+        self.sequences = []  # store rally sequences
+        self.labels = []     # store who won
+        
+        # go through each row in dataframe
+        for _, row in df.iterrows():
+            # get rally string
+            rally_str = row['2nd'] if pd.notna(row['2nd']) and row['2nd'] != '' else row['1st']
+            if not rally_str or rally_str in ['S','R']:
+                continue
+            
+            # parse and encode the rally
+            parsed = parse_rally(rally_str)
+            simplified = simplify_rally(parsed)
+            
+            if len(simplified) > 0:
+                # convert each shot to a number
+                encoded = []
+                for s in simplified:
+                    encoded.append(encode_shot(s))
+                
+                self.sequences.append(encoded)
+                
+                # did server win? 1 = yes, 0 = no
+                winner = 1 if row['PtWinner'] == row['Svr'] else 0
+                
+                # create label for EACH shot
+                # if server won, all shots get label 1
+                # if returner won, all shots get label 0
+                labels_per_shot = []
+                for _ in range(len(encoded)):
+                    labels_per_shot.append(winner)
+                
+                self.labels.append(labels_per_shot)
+    
+    # how many rallies do we have
+    def __len__(self):
+        return len(self.sequences)
+    
+    # get rally number idx
+    def __getitem__(self, idx):
+        return self.sequences[idx], self.labels[idx]
+
+# pad sequences to same length for batching
+def pad_batch(batch):
+    sequences = []
+    labels = []
+    
+    # unpack batch
+    for seq, label in batch:
+        sequences.append(seq)
+        labels.append(label)
+    
+    # find longest rally
+    max_len = 0
+    for s in sequences:
+        if len(s) > max_len:
+            max_len = len(s)
+    
+    # pad all sequences to max length
+    padded_seq = []
+    padded_labels = []
+    
+    for seq, label in zip(sequences, labels):
+        pad_len = max_len - len(seq)
+        
+        # add zeros to the end
+        padded_seq.append(seq + [0] * pad_len)
+        padded_labels.append(label + [0] * pad_len)
+    
+    # convert to tensors
+    seq_tensor = torch.tensor(padded_seq, dtype=torch.long)
+    label_tensor = torch.tensor(padded_labels, dtype=torch.float)
+    
+    return seq_tensor, label_tensor
+
+# the neural network model
+class RNN(nn.Module):
+    def __init__(self):
+        super().__init__()
+        
+        # embedding: convert shot numbers to vectors
+        # 10 = vocab size (shots 0-9)
+        # 16 = embedding dimension
+        self.embed = nn.Embedding(10, 16)
+        
+        # LSTM: the memory part
+        # 16 = input size (from embedding)
+        # 32 = hidden size (memory capacity)
+        self.lstm = nn.LSTM(16, 32, batch_first=True)
+        
+        # fully connected layer: makes final prediction
+        # 32 = input (from LSTM)
+        # 1 = output (probability)
+        self.fc = nn.Linear(32, 1)
+    
+    def forward(self, x):
+        # step 1: convert shot numbers to embeddings
+        x = self.embed(x)
+        
+        # step 2: pass through LSTM
+        # output = hidden state at EVERY shot
+        output, _ = self.lstm(x)
+        
+        # step 3: predict probability at every shot
+        out = self.fc(output)
+        
+        # step 4: squeeze removes extra dimension
+        # sigmoid converts to probability 0-1
+        return torch.sigmoid(out.squeeze(-1))
+
+# load data
+print("Loading data...")
 df = pd.read_csv("data/processed/points_hard_2022_2024.csv")
 
-processed_rallies = []
+# create dataset
+dataset = TennisDataset(df)
+print(f"Total rallies: {len(dataset)}")
 
-for _, row in df.iterrows():
-    # Use 2nd if it has data, else 1st
-    rally_str = row['2nd'] if pd.notna(row['2nd']) and row['2nd'] != '' else row['1st']
-    if not rally_str or rally_str in ['S','R']:
-        continue  # skip points with missing or placeholder data
+# split into train and validation
+train_size = int(0.8 * len(dataset))
+val_size = len(dataset) - train_size
 
-    # parse rally using your existing parser
-    parsed_rally = parse_rally(rally_str)  # your parser function
-    simplified_rally = simplify_rally(parsed_rally)
+train_data, val_data = torch.utils.data.random_split(dataset, [train_size, val_size])
+
+# create data loaders
+# batch_size = process 32 rallies at once
+train_loader = DataLoader(train_data, batch_size=32, shuffle=True, collate_fn=pad_batch)
+val_loader = DataLoader(val_data, batch_size=32, shuffle=False, collate_fn=pad_batch)
+
+# create model
+model = RNN()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+loss_fn = nn.BCELoss()
+
+# training loop
+print("\nTraining...")
+for epoch in range(10):
+    model.train()
+    total_loss = 0
     
-    processed_rallies.append({
-        'shots': simplified_rally,
-        'PtWinner': row['PtWinner']
-    })
+    # go through each batch
+    for seq, labels in train_loader:
+        # reset gradients
+        optimizer.zero_grad()
+        
+        # make predictions
+        pred = model(seq)
+        
+        # calculate loss only on real shots (not padding)
+        mask = (seq != 0).float()
+        loss = (loss_fn(pred, labels) * mask).sum() / mask.sum()
+        
+        # backpropagation
+        loss.backward()
+        optimizer.step()
+        
+        total_loss += loss.item()
+    
+    avg_loss = total_loss / len(train_loader)
+    print(f"Epoch {epoch+1}/10, Loss: {avg_loss:.4f}")
 
-trans_probs, state2idx, idx2state = build_markov_matrix(processed_rallies)
+# save model
+torch.save(model.state_dict(), 'tennis_rnn.pth')
+print("\nModel saved to tennis_rnn.pth")
 
-# Compute absorbing probabilities
-absorbing_probs = compute_absorbing_probs(trans_probs, idx2state)
+# test on example rallies
+model.eval()
+print("\n" + "="*60)
+print("EXAMPLE RALLY ANALYSIS")
+print("="*60)
 
-# Example: probability server wins from a forehand crosscourt
-state = ('F', 2)
-print(absorbing_probs)
-if state in absorbing_probs:
-    print("Prob server wins from state", state, ":", absorbing_probs[state]['prob_server_wins'])
+# get 5 test rallies
+test_rallies = []
+for i in range(5):
+    if i < len(val_data):
+        seq, label = val_data[i]
+        test_rallies.append((seq, label))
+
+with torch.no_grad():
+    for rally_num in range(len(test_rallies)):
+        seq, label = test_rallies[rally_num]
+        
+        # prepare input
+        seq_tensor = torch.tensor([seq], dtype=torch.long)
+        
+        # get predictions
+        predictions = model(seq_tensor).squeeze().numpy()
+        
+        # find actual rally length (ignore padding)
+        rally_len = 0
+        for s in seq:
+            if s != 0:
+                rally_len += 1
+        
+        # print rally info
+        print(f"\nRally {rally_num + 1}")
+        print("-" * 40)
+        print(f"Shots: {seq[:rally_len]}")
+        
+        outcome = 'Server won' if label[0] == 1 else 'Returner won'
+        print(f"Actual outcome: {outcome}")
+        print("\nWin probability after each shot:")
+        
+        # track best shot
+        best_shot_num = 1
+        best_advantage = -999
+        
+        # go through each shot
+        for shot_idx in range(rally_len):
+            prob = predictions[shot_idx]
+            
+            # calculate advantage (change in win probability)
+            if shot_idx == 0:
+                # first shot compared to 50%
+                advantage = prob - 0.5
+            else:
+                # compare to previous shot
+                advantage = prob - predictions[shot_idx - 1]
+            
+            # decode shot
+            shot_code = seq[shot_idx]
+            if shot_code < 4:
+                shot_name = f"FH dir {shot_code}"
+            elif shot_code < 8:
+                shot_name = f"BH dir {shot_code - 4}"
+            else:
+                shot_name = "OTHER"
+            
+            # print shot info
+            sign = '+' if advantage >= 0 else ''
+            print(f"  Shot {shot_idx + 1} ({shot_name}): {prob:.3f} ({sign}{advantage:.3f})")
+            
+            # track best shot
+            # if advantage > best_advantage:
+            #     best_advantage = advantage
+            #     best_shot_num = shot_idx + 1
+            if advantage > best_advantage:
+                best_advantage = advantage
+                best_shot_num = shot_idx + 1
+        
+        # print best shot
+        sign = '+' if best_advantage >= 0 else ''
+        print(f"\n  → Most advantageous shot in this rally: Shot {best_shot_num} (advantage: {sign}{best_advantage:.3f})")
+
+print("\n" + "="*60)
+print("Done!")
