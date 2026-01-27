@@ -2,7 +2,9 @@ import pandas as pd
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
+import matplotlib.pyplot as plt
 import numpy as np
+import visualizations as viz
 
 # Parse rally string into shots
 def parse_rally(rally_str):
@@ -304,6 +306,9 @@ with torch.no_grad():
         
         # get predictions
         predictions = model(seq_tensor).squeeze().numpy()
+        if predictions.ndim == 0:
+            predictions = np.array([predictions])
+        
         
         # find actual rally length (ignore padding)
         rally_len = 0
@@ -336,7 +341,7 @@ with torch.no_grad():
                 # compare to previous shot
                 advantage = prob - predictions[shot_idx - 1]
             
-            # decode shot
+            # decode shots
             shot_code = seq[shot_idx]
             if shot_code < 4:
                 shot_name = f"FH dir {shot_code}"
@@ -363,3 +368,12 @@ with torch.no_grad():
 
 print("\n" + "="*60)
 print("Done!")
+
+
+
+# Task 2: Work on graphic implementation 
+
+# ok moved to separate file visualizations.py
+# generate all the visualizations
+# graphics for each rally, detailed probabilities, and rally comparisons
+viz.generate_all_visualizations(dataset, test_rallies, model)
