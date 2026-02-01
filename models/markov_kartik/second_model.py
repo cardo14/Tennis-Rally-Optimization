@@ -355,9 +355,6 @@ with torch.no_grad():
             print(f"  Shot {shot_idx + 1} ({shot_name}): {prob:.3f} ({sign}{advantage:.3f})")
             
             # track best shot
-            # if advantage > best_advantage:
-            #     best_advantage = advantage
-            #     best_shot_num = shot_idx + 1
             if advantage > best_advantage:
                 best_advantage = advantage
                 best_shot_num = shot_idx + 1
@@ -367,13 +364,194 @@ with torch.no_grad():
         print(f"\n  → Most advantageous shot in this rally: Shot {best_shot_num} (advantage: {sign}{best_advantage:.3f})")
 
 print("\n" + "="*60)
-print("Done!")
 
 
 
-# Task 2: Work on graphic implementation 
+# Breakeven analysis
 
-# ok moved to separate file visualizations.py
-# generate all the visualizations
-# graphics for each rally, detailed probabilities, and rally comparisons
+
+print("\n" + "="*60)
+print("BREAKEVEN POINT ANALYSIS")
+print("="*60)
+print("Finding shots where advantage turned to disadvantage...")
+print()
+
+def find_breakeven_and_alternatives(rally_seq, model):
+    #Where advantageous shots become disadvantageous
+    #This is all possible shots: FH 0-3, BH 4-7, OTHER 8
+    all_shots = []
+    for d in range(4):
+        all_shots.append(('FH', d, d))
+    for d in range(4):
+        all_shots.append(('BH', d, 4+d))
+    all_shots.append(('OTHER', None, 8))
+    
+    results = []
+    
+    with torch.no_grad():
+        for shot_idx in range(len(rally_seq)):
+            if rally_seq[shot_idx] == 0:  # padding
+                break
+            
+            # Get state BEFORE this shot
+            rally_before = rally_seq[:shot_idx]
+            
+            # Baseline probability (where we were before this shot)
+            if len(rally_before) == 0:
+                baseline_prob = 0.5
+            else:
+                seq_tensor = torch.tensor([rally_before], dtype=torch.long)
+                preds = model(seq_tensor).squeeze().numpy()
+                baseline_prob = preds[-1] if preds.ndim > 0 else preds.item()
+            
+            # Current shot analysis
+            current_shot = rally_seq[shot_idx]
+            current_seq = rally_before + [current_shot]
+            
+            seq_tensor = torch.tensor([current_seq], dtype=torch.long)
+            preds = model(seq_tensor).squeeze().numpy()
+            current_prob = preds[-1] if preds.ndim > 0 else preds.item()
+            current_advantage = current_prob - baseline_prob
+            
+            # Test ALL alternative shots from this position
+            alternative_results = []
+            for shot_name, direction, encoding in all_shots:
+                alt_seq = rally_before + [encoding]
+                seq_tensor = torch.tensor([alt_seq], dtype=torch.long)
+                preds = model(seq_tensor).squeeze().numpy()
+                alt_prob = preds[-1] if preds.ndim > 0 else preds.item()
+                alt_advantage = alt_prob - baseline_prob
+                
+                alternative_results.append({
+                    'name': f"{shot_name} dir {direction}" if direction is not None else shot_name,
+                    'encoding': encoding,
+                    'prob': alt_prob,
+                    'advantage': alt_advantage,
+                    'is_current': encoding == current_shot
+                })
+            
+            # Sort alternatives by advantage (best first)
+            alternative_results.sort(key=lambda x: x['advantage'], reverse=True)
+            
+            # Decode current shot name
+            if current_shot < 4:
+                current_name = f"FH dir {current_shot}"
+            elif current_shot < 8:
+                current_name = f"BH dir {current_shot - 4}"
+            else:
+                current_name = "OTHER"
+            
+            # Find best alternative (that's not the current shot)
+            best_alternative = None
+            for alt in alternative_results:
+                if not alt['is_current']:
+                    best_alternative = alt
+                    break
+            
+            # Here, we can detect breakeven
+            is_breakeven = current_advantage < 0
+            
+            results.append({
+                'shot_num': shot_idx + 1,
+                'shot_name': current_name,
+                'baseline_prob': baseline_prob,
+                'current_prob': current_prob,
+                'current_advantage': current_advantage,
+                'is_breakeven': is_breakeven,
+                'best_alternative': best_alternative,
+                'all_alternatives': alternative_results
+            })
+    
+    return results
+
+# Analyze test rallies for breakeven points
+for rally_num in range(len(test_rallies)):
+    seq, label = test_rallies[rally_num]
+    
+    print(f"\n{'='*60}")
+    print(f"RALLY {rally_num + 1} - BREAKEVEN ANALYSIS")
+    print('='*60)
+    
+    # Find actual rally length
+    rally_len = 0
+    for s in seq:
+        if s != 0:
+            rally_len += 1
+    
+    outcome = 'Server won' if label[0] == 1 else 'Returner won'
+    print(f"Outcome: {outcome}")
+    print(f"Rally length: {rally_len} shots\n")
+    
+    # Get breakeven analysis
+    breakeven_results = find_breakeven_and_alternatives(seq[:rally_len], model)
+    
+    # Track if we found any breakeven points
+    found_breakeven = False
+    breakeven_shots = []
+    
+    for result in breakeven_results:
+        if result['is_breakeven']:
+            found_breakeven = True
+            breakeven_shots.append(result['shot_num'])
+    
+    if found_breakeven:
+        print(f"BREAKEVEN POINTS DETECTED at shot(s): {breakeven_shots}")
+        print(f"   (These shots DECREASED win probability)\n")
+    else:
+        print("✓ No breakeven points - all shots increased win probability\n")
+    
+    # Detailed shot-by-shot analysis
+    for result in breakeven_results:
+        shot_num = result['shot_num']
+        shot_name = result['shot_name']
+        current_adv = result['current_advantage']
+        
+        # Format advantage display
+        sign = '+' if current_adv >= 0 else ''
+        status = "✗ DISADVANTAGEOUS" if result['is_breakeven'] else "✓ Advantageous"
+        
+        print(f"Shot {shot_num}: {shot_name}")
+        print(f"  Win prob: {result['baseline_prob']:.3f} → {result['current_prob']:.3f} ({sign}{current_adv:.3f})")
+        print(f"  Status: {status}")
+        
+        # If breakeven, show the better alternative
+        if result['is_breakeven']:
+            best_alt = result['best_alternative']
+            print(f"  💡 BETTER OPTION: {best_alt['name']}")
+            print(f"     Would give: {result['baseline_prob']:.3f} → {best_alt['prob']:.3f} ({best_alt['advantage']:+.3f})")
+            print(f"     Improvement over actual: {best_alt['advantage'] - current_adv:+.3f}")
+            
+            # Show top 3 alternatives
+            print(f"  📊 Top 3 alternatives:")
+            for i, alt in enumerate(result['all_alternatives'][:3]):
+                if alt['is_current']:
+                    print(f"     {i+1}. {alt['name']}: {alt['advantage']:+.3f} ← ACTUAL SHOT")
+                else:
+                    print(f"     {i+1}. {alt['name']}: {alt['advantage']:+.3f}")
+        
+        print()
+    
+    # Summary statistics
+    print(f"\n{'─'*60}")
+    print("RALLY SUMMARY:")
+    print(f"  Total shots: {len(breakeven_results)}")
+    print(f"  Advantageous shots: {sum(1 for r in breakeven_results if not r['is_breakeven'])}")
+    print(f"  Disadvantageous shots (breakeven): {sum(1 for r in breakeven_results if r['is_breakeven'])}")
+    
+    if found_breakeven:
+        total_lost = sum(r['current_advantage'] for r in breakeven_results if r['is_breakeven'])
+        print(f"  Total probability lost at breakeven points: {total_lost:.3f}")
+        
+        # Calculate potential gain if best alternatives were played
+        total_potential_gain = 0
+        for r in breakeven_results:
+            if r['is_breakeven']:
+                potential_gain = r['best_alternative']['advantage'] - r['current_advantage']
+                total_potential_gain += potential_gain
+        print(f"  Potential gain if alternatives played: {total_potential_gain:+.3f}")
+
+print("\n" + "="*60)
+
+
+# Graphics from separate file
 viz.generate_all_visualizations(dataset, test_rallies, model)
