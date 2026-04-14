@@ -1,246 +1,210 @@
-import numpy as np
-from collections import defaultdict
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+
+import joblib
 import pandas as pd
 
-def build_markov_matrix(parsed_rallies):
-    """
-    parsed_rallies: list of dicts per point, e.g.
-    [
-        {'shots': [('FH',3), ('BH',2), ...], 'PtWinner': 1 or 2},
-        ...
-    ]
-    """
-    # Step 1: build all possible states
-    states_set = set()
-    for point in parsed_rallies:
-        for shot in point['shots']:
-            states_set.add(shot)  # shot is already a tuple (shot_type, dir)
+ROOT = Path(__file__).resolve().parents[2]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
-    # Add absorbing states
-    states_set.add('ServerWin')
-    states_set.add('ReturnerWin')
-
-    # Map state -> index
-    state2idx = {s:i for i,s in enumerate(states_set)}
-    idx2state = {i:s for s,i in state2idx.items()}
-    n = len(state2idx)
-
-    # Step 2: count transitions
-    trans_counts = np.zeros((n,n), dtype=int)
-
-    for point in parsed_rallies:
-        shots = point['shots']
-        if len(shots) == 0:
-            continue
-
-        for i in range(len(shots)-1):
-            s_from = state2idx[shots[i]]
-            s_to   = state2idx[shots[i+1]]
-            trans_counts[s_from, s_to] += 1
-
-        # last shot -> absorbing state
-        last_shot = shots[-1]
-        s_from = state2idx[last_shot]
-        s_to = state2idx['ServerWin'] if point['PtWinner']==1 else state2idx['ReturnerWin']
-        trans_counts[s_from, s_to] += 1
-
-    # Step 3: convert counts -> probabilities
-    trans_probs = np.zeros_like(trans_counts, dtype=float)
-    for i in range(n):
-        row_sum = trans_counts[i].sum()
-        if row_sum > 0:
-            trans_probs[i] = trans_counts[i] / row_sum
-        else:
-            # if no outgoing transitions, make absorbing
-            if idx2state[i] not in ['ServerWin','ReturnerWin']:
-                trans_probs[i, i] = 1.0
-
-    return trans_probs, state2idx, idx2state
+from src.evaluation.offline_policy_eval import (
+    bootstrap_interval,
+    clip_probability,
+    doubly_robust_scores,
+    ipw_scores,
+    soft_recommendation_policy,
+)
+from src.evaluation.overlap import overlap_summary
+from src.evaluation.regret import add_regret_columns
+from src.features.state_builder import (
+    build_forehand_direction_dataset,
+    build_shot_level_table,
+    load_filtered_points,
+)
+from src.models.baseline_glm import fit_q_model, predict_q
+from src.models.calibration import calibration_summary, fit_isotonic_calibrator
+from src.models.propensity_model import fit_propensity_model, predict_propensity
+from src.parsing.mcp_parser import parse_rally
+from src.parsing.validation import validate_points
+from src.reporting.recommendation_tables import build_player_recommendations
 
 
-def compute_absorbing_probs(trans_probs, idx2state):
-    """
-    trans_probs: n x n matrix of transition probabilities
-    idx2state: dict mapping index -> state
-    Returns: dict of state -> (prob_server_wins, prob_returner_wins)
-    """
-    n = trans_probs.shape[0]
+OUTPUT_TABLES = Path("outputs/tables")
+OUTPUT_MODELS = Path("outputs/models")
+INTERIM_DATA = Path("data/interim")
 
-    # Identify absorbing vs transient states
-    absorbing_idx = [i for i,s in idx2state.items() if s in ['ServerWin','ReturnerWin']]
-    transient_idx = [i for i in range(n) if i not in absorbing_idx]
 
-    # Q = transient -> transient, R = transient -> absorbing
-    Q = trans_probs[np.ix_(transient_idx, transient_idx)]
-    R = trans_probs[np.ix_(transient_idx, absorbing_idx)]
+def _write_model_metadata(path: Path, metadata: dict) -> None:
+    path.write_text(json.dumps(metadata, indent=2))
 
-    # Fundamental matrix: N = (I-Q)^-1
-    I = np.eye(len(Q))
-    N = np.linalg.inv(I - Q)
 
-    # Absorbing probabilities: B = N * R
-    B = N @ R
+def _split_context_dataset(context_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+    fit_df = context_df[context_df["match_date"] < "2023-07-01"].copy()
+    calibration_df = context_df[
+        (context_df["match_date"] >= "2023-07-01") & (context_df["match_date"] < "2024-01-01")
+    ].copy()
+    test_df = context_df[context_df["match_date"] >= "2024-01-01"].copy()
 
-    # Map results back to state names
-    absorbing_states = [idx2state[i] for i in absorbing_idx]
-    results = {}
-    for idx, s_idx in enumerate(transient_idx):
-        s_name = idx2state[s_idx]
-        results[s_name] = {
-            'prob_server_wins': B[idx, absorbing_states.index('ServerWin')],
-            'prob_returner_wins': B[idx, absorbing_states.index('ReturnerWin')]
-        }
+    if fit_df.empty or calibration_df.empty or test_df.empty:
+        raise ValueError("Time-based split produced an empty fold. Check the filtered context dataset.")
+    return fit_df, calibration_df, test_df
 
-    # Absorbing states themselves
-    results['ServerWin'] = {'prob_server_wins': 1.0, 'prob_returner_wins': 0.0}
-    results['ReturnerWin'] = {'prob_server_wins': 0.0, 'prob_returner_wins': 1.0}
 
-    return results
+def _save_frame(df: pd.DataFrame, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    df.to_csv(path, index=False)
 
-def parse_rally(rally_str):
-    if not rally_str or not isinstance(rally_str, str):
-        return []
 
-    # --- constants ---
-    serve_digits = {'0', '4', '5', '6'}
-    serve_letters = {'n', 'w', 'd', 'x', 'g', 'e', '!', 'c', 'V', 'P', 'Q', 'S', 'R'}
-    terminal_symbols = {'*', '@', '#', 'C'}
+def run_pipeline() -> dict[str, pd.DataFrame]:
+    OUTPUT_TABLES.mkdir(parents=True, exist_ok=True)
+    OUTPUT_MODELS.mkdir(parents=True, exist_ok=True)
+    INTERIM_DATA.mkdir(parents=True, exist_ok=True)
 
-    fh_letters = {'f', 'r', 'v', 'o', 'u', 'l', 'h', 'j'}
-    bh_letters = {'b', 's', 'z', 'p', 'y', 'm', 'i', 'k'}
-    other_letters = {'t', 'q'}
-    shot_letters = fh_letters | bh_letters | other_letters
+    filtered_points = load_filtered_points()
+    validation_df, validation_summary_df = validate_points(filtered_points)
+    _save_frame(validation_df, OUTPUT_TABLES / "parser_validation_rows.csv")
+    _save_frame(validation_summary_df, OUTPUT_TABLES / "parser_validation_summary.csv")
 
-    error_types = {'n', 'w', 'd', 'x', '!', 'e'}
+    shot_df = build_shot_level_table(filtered_points)
+    _save_frame(shot_df, INTERIM_DATA / "shot_level_table.csv")
 
-    shots = []
-    i = 0
-    n = len(rally_str)
+    context_df = build_forehand_direction_dataset(shot_df, shot_index=5)
+    if context_df.empty:
+        raise ValueError("No fifth-shot forehand CC/DTL contexts were found.")
+    _save_frame(context_df, INTERIM_DATA / "fifth_shot_forehand_context.csv")
 
-    # --- skip serve encoding ---
-    while i < n:
-        if rally_str[i] in serve_digits or rally_str[i] in serve_letters or rally_str[i] == '+':
-            i += 1
-        else:
-            break
+    context_summary_df = (
+        context_df.groupby(["side_proxy", "hitter"])
+        .agg(
+            sample_size=("action", "size"),
+            dtl_rate=("action_dtl", "mean"),
+            point_win_rate=("point_win", "mean"),
+        )
+        .reset_index()
+        .sort_values(["sample_size", "hitter"], ascending=[False, True])
+    )
+    _save_frame(context_summary_df, OUTPUT_TABLES / "context_summary.csv")
 
-    # --- parse rally ---
-    while i < n:
-        ch = rally_str[i]
+    fit_df, calibration_df, test_df = _split_context_dataset(context_df)
 
-        # terminal without explicit final shot (rare)
-        if ch in terminal_symbols:
-            break
+    q_bundle = fit_q_model(fit_df)
+    raw_calibration_pred = predict_q(q_bundle, calibration_df)
+    q_bundle["calibrator"] = fit_isotonic_calibrator(raw_calibration_pred, calibration_df["point_win"])
+    joblib.dump(q_bundle, OUTPUT_MODELS / "q_model.joblib")
+    _write_model_metadata(
+        OUTPUT_MODELS / "q_model_metadata.json",
+        {
+            "train_start": str(fit_df["match_date"].min().date()),
+            "train_end": str(fit_df["match_date"].max().date()),
+            "calibration_start": str(calibration_df["match_date"].min().date()),
+            "calibration_end": str(calibration_df["match_date"].max().date()),
+            "feature_columns": q_bundle["feature_columns"],
+            "context": "fifth_shot_forehand_direction",
+            "model": "ridge-logistic-regression",
+        },
+    )
 
-        if ch not in shot_letters:
-            i += 1
-            continue
+    propensity_train_df = pd.concat([fit_df, calibration_df], ignore_index=True)
+    propensity_bundle = fit_propensity_model(propensity_train_df)
+    joblib.dump(propensity_bundle, OUTPUT_MODELS / "behavior_policy_model.joblib")
+    _write_model_metadata(
+        OUTPUT_MODELS / "behavior_policy_model_metadata.json",
+        {
+            "train_start": str(propensity_train_df["match_date"].min().date()),
+            "train_end": str(propensity_train_df["match_date"].max().date()),
+            "feature_columns": propensity_bundle["feature_columns"],
+            "context": "fifth_shot_forehand_direction",
+            "model": "ridge-logistic-regression",
+        },
+    )
 
-        shot = {
-            "shot": (
-                "FH" if ch in fh_letters else
-                "BH" if ch in bh_letters else
-                "OTHER"
-            ),
-            "dir": None,
-            "depth": None,
-            "approach": False,
-            "net_cord": False,
-            "stop_volley": False,
-            "position": None,
-            "ending": None,
-            "error_type": None,
-        }
+    scored_test = test_df.copy()
+    scored_test["q_cc"] = predict_q(q_bundle, scored_test, action="CC")
+    scored_test["q_dtl"] = predict_q(q_bundle, scored_test, action="DTL")
+    scored_test["mu_dtl"] = clip_probability(predict_propensity(propensity_bundle, scored_test))
+    scored_test["mu_cc"] = 1.0 - scored_test["mu_dtl"]
+    scored_test["pi_dtl"] = soft_recommendation_policy(scored_test["q_cc"], scored_test["q_dtl"], tau=0.02)
+    scored_test["pi_cc"] = 1.0 - scored_test["pi_dtl"]
+    scored_test = add_regret_columns(scored_test)
+    _save_frame(scored_test, INTERIM_DATA / "fifth_shot_forehand_scored_test.csv")
 
-        i += 1
+    calibration_metrics_df, reliability_df = calibration_summary(scored_test["point_win"], scored_test["q_obs"])
+    _save_frame(calibration_metrics_df, OUTPUT_TABLES / "q_model_calibration_metrics.csv")
+    _save_frame(reliability_df, OUTPUT_TABLES / "q_model_reliability.csv")
 
-        # optional modifiers (order-independent, spec-legal)
-        while i < n:
-            c = rally_str[i]
+    observed_values = scored_test["point_win"]
+    dm_scores = scored_test["pi_dtl"] * scored_test["q_dtl"] + (1.0 - scored_test["pi_dtl"]) * scored_test["q_cc"]
+    ipw = ipw_scores(
+        observed_action_dtl=scored_test["action_dtl"],
+        observed_reward=scored_test["point_win"],
+        mu_dtl=scored_test["mu_dtl"],
+        pi_dtl=scored_test["pi_dtl"],
+    )
+    dr = doubly_robust_scores(
+        observed_action_dtl=scored_test["action_dtl"],
+        observed_reward=scored_test["point_win"],
+        mu_dtl=scored_test["mu_dtl"],
+        q_cc=scored_test["q_cc"],
+        q_dtl=scored_test["q_dtl"],
+        pi_dtl=scored_test["pi_dtl"],
+    )
 
-            if c == '+':
-                shot["approach"] = True
-            elif c == ';':
-                shot["net_cord"] = True
-            elif c == '^':
-                shot["stop_volley"] = True
-            elif c == '-':
-                shot["position"] = "net"
-            elif c == '=':
-                shot["position"] = "baseline"
-            else:
-                break
-            i += 1
+    evaluation_summary_df = pd.DataFrame(
+        [
+            {
+                "metric": "observed_policy_value",
+                "estimate": float(observed_values.mean()),
+                "ci_low": bootstrap_interval(observed_values)[0],
+                "ci_high": bootstrap_interval(observed_values)[1],
+            },
+            {
+                "metric": "recommended_policy_value_dm",
+                "estimate": float(dm_scores.mean()),
+                "ci_low": bootstrap_interval(dm_scores)[0],
+                "ci_high": bootstrap_interval(dm_scores)[1],
+            },
+            {
+                "metric": "recommended_policy_value_ipw",
+                "estimate": float(ipw.mean()),
+                "ci_low": bootstrap_interval(ipw)[0],
+                "ci_high": bootstrap_interval(ipw)[1],
+            },
+            {
+                "metric": "recommended_policy_value_dr",
+                "estimate": float(dr.mean()),
+                "ci_low": bootstrap_interval(dr)[0],
+                "ci_high": bootstrap_interval(dr)[1],
+            },
+            {
+                "metric": "recommended_minus_observed_uplift_dr",
+                "estimate": float(dr.mean() - observed_values.mean()),
+                "ci_low": float(bootstrap_interval(dr - observed_values)[0]),
+                "ci_high": float(bootstrap_interval(dr - observed_values)[1]),
+            },
+        ]
+    )
+    _save_frame(evaluation_summary_df, OUTPUT_TABLES / "policy_evaluation_summary.csv")
 
-        # direction
-        if i < n and rally_str[i] in {'0', '1', '2', '3'}:
-            shot["dir"] = int(rally_str[i])
-            i += 1
+    overlap_df = overlap_summary(scored_test)
+    _save_frame(overlap_df, OUTPUT_TABLES / "overlap_summary.csv")
 
-        # depth (returns only, optional)
-        if i < n and rally_str[i] in {'7', '8', '9', '0'}:
-            shot["depth"] = int(rally_str[i])
-            i += 1
+    recommendation_df = build_player_recommendations(scored_test)
+    _save_frame(recommendation_df, OUTPUT_TABLES / "player_recommendations.csv")
 
-        # error type (optional)
-        if i < n and rally_str[i] in error_types:
-            shot["error_type"] = rally_str[i]
-            i += 1
+    return {
+        "validation_summary": validation_summary_df,
+        "context_summary": context_summary_df,
+        "calibration_metrics": calibration_metrics_df,
+        "evaluation_summary": evaluation_summary_df,
+        "player_recommendations": recommendation_df,
+    }
 
-        # forced / unforced / winner
-        if i < n and rally_str[i] in {'*', '@', '#'}:
-            shot["ending"] = (
-                "winner" if rally_str[i] == '*' else
-                "unforced_error" if rally_str[i] == '@' else
-                "forced_error"
-            )
-            i += 1
-            shots.append(shot)
-            break
 
-        shots.append(shot)
-
-    return shots
-
-def simplify_rally(parsed_rally):
-    """
-    Take output from your existing parser and reduce it to a list of (shot, dir) tuples.
-    Ignore depth, approach, error symbols, etc.
-    Example: [{'shot':'f','dir':2, ...}, ...] -> [('F',2), ...]
-    """
-    simplified = []
-    for shot_info in parsed_rally:
-        shot_type = shot_info.get('shot', '').upper()
-        dir = shot_info.get('dir', 0)
-        simplified.append((shot_type, dir))
-    return simplified
-
-df = pd.read_csv("data/processed/points_hard_2022_2024.csv")
-
-processed_rallies = []
-
-for _, row in df.iterrows():
-    # Use 2nd if it has data, else 1st
-    rally_str = row['2nd'] if pd.notna(row['2nd']) and row['2nd'] != '' else row['1st']
-    if not rally_str or rally_str in ['S','R']:
-        continue  # skip points with missing or placeholder data
-
-    # parse rally using your existing parser
-    parsed_rally = parse_rally(rally_str)  # your parser function
-    simplified_rally = simplify_rally(parsed_rally)
-    
-    processed_rallies.append({
-        'shots': simplified_rally,
-        'PtWinner': row['PtWinner']
-    })
-
-trans_probs, state2idx, idx2state = build_markov_matrix(processed_rallies)
-
-# Compute absorbing probabilities
-absorbing_probs = compute_absorbing_probs(trans_probs, idx2state)
-
-# Example: probability server wins from a forehand crosscourt
-state = ('F', 2)
-print(absorbing_probs)
-if state in absorbing_probs:
-    print("Prob server wins from state", state, ":", absorbing_probs[state]['prob_server_wins'])
+if __name__ == "__main__":
+    results = run_pipeline()
+    for name, frame in results.items():
+        print(f"{name}: {len(frame)} rows")

@@ -1,0 +1,181 @@
+hitter,side_proxy,sample_size,cc_count,dtl_count,mean_min_propensity,support_label
+Adam Walton,deuce,5,4,1,0.3344620972674635,low support
+Adrian Andreev,deuce,14,12,2,0.3967873878762385,low support
+Adrian Mannarino,ad,74,63,11,0.1674975871678774,moderate support
+Alejandro Davidovich Fokina,deuce,14,9,5,0.3580021846739032,low support
+Alejandro Tabilo,ad,4,4,0,0.26296727183804053,low support
+Aleksandar Kovacevic,deuce,8,6,2,0.4142578905312044,low support
+Aleksandar Vukic,deuce,12,10,2,0.34432792050588307,low support
+Alex De Minaur,deuce,59,41,18,0.33393288575347396,moderate support
+Alex Michelsen,deuce,51,21,30,0.39020356245420257,high support
+Alex Molcan,ad,5,5,0,0.21000523175515218,low support
+Alexander Bublik,deuce,25,18,7,0.34238600179728196,low support
+Alexander Shevchenko,deuce,24,12,12,0.3789562885668612,moderate support
+Alexander Zverev,deuce,141,104,37,0.36384901312087814,high support
+Alexandre Muller,deuce,1,0,1,0.46961399715802,low support
+Alexei Popyrin,deuce,48,33,15,0.37156394633471007,moderate support
+Alexis Galarneau,deuce,10,6,4,0.36938844458725606,low support
+Andrea Vavassori,deuce,2,1,1,0.35429052984385834,low support
+Andrey Rublev,deuce,85,60,25,0.37756248239206874,high support
+Andy Murray,deuce,16,8,8,0.39126147528552874,low support
+Arthur Cazaux,deuce,19,11,8,0.33688666310667187,low support
+Arthur Fils,deuce,45,32,13,0.3897314964526914,moderate support
+Arthur Rinderknech,deuce,7,4,3,0.4262525508965785,low support
+Ben Shelton,ad,40,22,18,0.38801045897487185,moderate support
+Benjamin Bonzi,deuce,10,4,6,0.33700578939655346,low support
+Bernard Tomic,deuce,7,5,2,0.2831682570303083,low support
+Billy Harris,deuce,5,5,0,0.4032192886346727,low support
+Borna Coric,deuce,21,13,8,0.3736468945586906,low support
+Botic Van De Zandschulp,deuce,57,37,20,0.3280993593184901,high support
+Brandon Nakashima,deuce,22,15,7,0.42240348925074306,low support
+Bu Yunchaokete,deuce,11,6,5,0.4058680661993629,low support
+Cameron Norrie,ad,38,24,14,0.26117685528457507,moderate support
+Camilo Ugo Carabelli,deuce,12,7,5,0.36424583446462405,low support
+Carlos Alcaraz,deuce,96,64,32,0.3756764315448104,high support
+Casper Ruud,deuce,70,41,29,0.35505274974079154,high support
+Christoph Negritu,deuce,4,3,1,0.31959452618510353,low support
+Christopher Eubanks,deuce,3,3,0,0.4048046115956341,low support
+Christopher Oconnell,deuce,23,11,12,0.3673398959035301,moderate support
+Coleman Wong,deuce,3,2,1,0.35036134833959703,low support
+Colton Smith,deuce,6,4,2,0.36824519227905617,low support
+Cooper Kose,deuce,1,1,0,0.33447680451451833,low support
+Cooper Williams,deuce,2,1,1,0.4450701058876385,low support
+Cristian Garin,deuce,8,4,4,0.3915977624278506,low support
+Daniel Altmaier,deuce,6,1,5,0.40871721874423095,low support
+Daniel Elahi Galan,deuce,9,6,3,0.4240370762723211,low support
+Daniel Evans,deuce,8,7,1,0.26707828430784486,low support
+Daniil Medvedev,deuce,147,97,50,0.34749870019456486,high support
+David Goffin,deuce,35,20,15,0.4129061382754619,moderate support
+Denis Shapovalov,ad,9,8,1,0.2447256038954226,low support
+Diego Schwartzman,deuce,9,5,4,0.1491272211598989,low support
+Dino Prizmic,deuce,15,9,6,0.38202179552960486,low support
+Dominic Thiem,deuce,25,19,6,0.3195211351577697,low support
+Dusan Lajovic,deuce,11,5,6,0.4050382327885653,low support
+Dylan Dietrich,deuce,5,2,3,0.4113656986118485,low support
+Eliot Spizzirri,deuce,10,7,3,0.3778540685581402,low support
+Emil Ruusuvuori,deuce,38,17,21,0.3743125491505907,moderate support
+Emilio Nava,deuce,1,1,0,0.26277679190124487,low support
+Ethan Quinn,deuce,6,5,1,0.3674920389054806,low support
+Evan Zhu,deuce,7,7,0,0.40303999769126797,low support
+Fabian Marozsan,deuce,30,17,13,0.38661152463240006,moderate support
+Federico Cina,deuce,6,4,2,0.38830367344331584,low support
+Felix Auger Aliassime,deuce,26,20,6,0.3953852682408654,low support
+Flavio Cobolli,deuce,12,6,6,0.3161485549944549,low support
+Frances Tiafoe,deuce,41,30,11,0.3583659168246198,moderate support
+Francisco Cerundolo,deuce,1,1,0,0.4869116404525665,low support
+Gabriel Diallo,deuce,17,10,7,0.38720501628862786,low support
+Gael Monfils,deuce,60,37,23,0.38315679647819867,high support
+Gijs Brouwer,deuce,2,0,2,0.36271865733259523,low support
+Giovanni Mpetshi Perricard,deuce,12,4,8,0.3481544512835662,low support
+Giulio Zeppieri,ad,5,5,0,0.20888890157775072,low support
+Goncalo Oliveira,ad,3,1,2,0.2671711364980352,low support
+Govind Nanda,deuce,8,4,4,0.3874855910538487,low support
+Gregoire Barrere,deuce,11,6,5,0.39602339616185456,low support
+Grigor Dimitrov,deuce,63,28,35,0.37800974785028585,high support
+Holger Rune,deuce,26,15,11,0.3724494159113937,moderate support
+Hubert Hurkacz,deuce,166,65,101,0.41756429011602697,high support
+Hugo Gaston,ad,2,2,0,0.2403905050754091,low support
+Hugo Grenier,deuce,4,3,1,0.4503609459214948,low support
+Jack Draper,ad,29,17,12,0.36970377829915785,moderate support
+Jakub Mensik,deuce,65,38,27,0.3748141021762622,high support
+James Duckworth,deuce,4,3,1,0.4289839315364407,low support
+James Mccabe,deuce,6,6,0,0.3171831824718842,low support
+Jan Kumstat,deuce,1,1,0,0.2786554372284177,low support
+Jan Lennard Struff,deuce,26,23,3,0.37102009864568813,low support
+Jannik Sinner,deuce,201,135,66,0.32964703050068445,high support
+Jason Kubler,deuce,13,5,8,0.4262329777914864,low support
+Jaume Munar,deuce,2,2,0,0.4501502747515005,low support
+Jesper De Jong,deuce,20,8,12,0.37488508552214006,low support
+Jiri Lehecka,deuce,51,33,18,0.3041614103089709,moderate support
+Joao Fonseca,deuce,25,18,7,0.3714960585192932,low support
+John Millman,deuce,19,17,2,0.19681276096584963,low support
+Jordan Thompson,deuce,29,15,14,0.3910715812366155,moderate support
+Joshua Sheehy,ad,2,2,0,0.24770073914428586,low support
+Juan Carlos Prado Angelo,deuce,3,3,0,0.38290262002006575,low support
+Juncheng Shang,ad,36,27,9,0.2837693882063382,low support
+Karen Khachanov,deuce,36,17,19,0.38720595509903943,moderate support
+Karlis Ozolins,deuce,2,1,1,0.35021736976577317,low support
+Karue Sell,deuce,19,17,2,0.39738090477855875,low support
+Kei Nishikori,deuce,12,7,5,0.41796810122521744,low support
+Kilian Feldbausch,deuce,8,3,5,0.3744010664736841,low support
+Kiranpal Pannu,deuce,3,2,1,0.3765752075013564,low support
+Kris Van Wyk,deuce,2,2,0,0.3457803387426894,low support
+Kyrian Jacquet,deuce,5,3,2,0.43284974006215354,low support
+Laslo Djere,deuce,16,10,6,0.309686818867749,low support
+Leandro Riedi,deuce,3,2,1,0.3557022106253291,low support
+Learner Tien,ad,24,16,8,0.29039602405860276,low support
+Li Tu,deuce,15,6,9,0.40560946856675056,low support
+Liam Draxl,deuce,9,4,5,0.37885519635562803,low support
+Lorenzo Musetti,deuce,60,32,28,0.3898092818712424,high support
+Lorenzo Sonego,deuce,15,9,6,0.294894306088163,low support
+Luca Nardi,deuce,14,8,6,0.38292875956482914,low support
+Luca Van Assche,deuce,25,16,9,0.33614075548912603,low support
+Lucas Pouille,ad,3,3,0,0.269463630255292,low support
+Mackenzie Mcdonald,deuce,9,6,3,0.3690714443682252,low support
+Maks Kasnikowski,deuce,17,15,2,0.3801512930633226,low support
+Marc Andrea Huesler,ad,4,2,2,0.3279737846176112,low support
+Marc Andrea Huesler,deuce,1,0,1,0.40502639625897785,low support
+Marc Polmans,deuce,1,0,1,0.3397804180287526,low support
+Marcos Giron,deuce,25,15,10,0.3733029629560889,moderate support
+Mariano Navone,deuce,2,1,1,0.400020927524255,low support
+Marin Cilic,deuce,6,3,3,0.3288269146920899,low support
+Martin Borisiouk,deuce,6,5,1,0.41384216054986717,low support
+Marton Fucsovics,deuce,2,2,0,0.3329336195229834,low support
+Masamichi Imamura,deuce,3,3,0,0.39216770879470997,low support
+Matteo Arnaldi,deuce,32,15,17,0.41761549541054704,moderate support
+Matteo Berrettini,deuce,18,8,10,0.41083255003490243,low support
+Mattia Bellucci,ad,1,0,1,0.27538175240309876,low support
+Max Purcell,deuce,15,8,7,0.37266389213748113,low support
+Milos Raonic,deuce,3,0,3,0.29566808787917176,low support
+Miomir Kecmanovic,deuce,32,17,15,0.3270675795552169,moderate support
+Naoki Nakagawa,deuce,5,3,2,0.3365390852793505,low support
+Nick Kyrgios,deuce,3,2,1,0.4403593644178572,low support
+Nicolas Jarry,deuce,6,2,4,0.3997107000806654,low support
+Niels Visker,deuce,3,1,2,0.36680657200509775,low support
+Nishesh Basavareddy,deuce,71,53,18,0.37083276501655893,moderate support
+Novak Djokovic,deuce,98,60,38,0.34148879735421855,high support
+Nuno Borges,deuce,21,13,8,0.41372175308441295,low support
+Omar Jasika,ad,16,7,9,0.20222838066987595,low support
+Otto Virtanen,deuce,9,4,5,0.3930944225053454,low support
+Ozan Baris,deuce,4,2,2,0.3998058928040933,low support
+Pablo Carreno Busta,deuce,11,8,3,0.4342247844954479,low support
+Patrick Brady,deuce,1,1,0,0.3829974728313504,low support
+Patrick Kypson,deuce,2,2,0,0.34280587353007874,low support
+Pavel Kotov,deuce,8,6,2,0.4270520946938271,low support
+Pedro Cachin,deuce,8,3,5,0.3814832287789311,low support
+Pedro Martinez,deuce,8,3,5,0.3809385194209277,low support
+Radu Albot,deuce,11,10,1,0.3648264511532503,low support
+Rafael Nadal,ad,32,31,1,0.1810678633097328,low support
+Raphael Collignon,deuce,6,2,4,0.4035536914081465,low support
+Rei Sakamoto,deuce,7,4,3,0.3712432394286996,low support
+Reilly Opelka,deuce,5,1,4,0.35922079075066204,low support
+Rinky Hijikata,deuce,14,8,6,0.39151726876189213,low support
+Roberto Bautista Agut,deuce,12,9,3,0.3752177905190872,low support
+Roberto Carballes Baena,deuce,5,2,3,0.3369125556859282,low support
+Roman Safiullin,deuce,16,9,7,0.39982577082672577,low support
+Ryan Seggerman,deuce,2,1,1,0.4271315504510259,low support
+Sebastian Baez,deuce,26,16,10,0.3126860392529709,moderate support
+Sebastian Korda,deuce,51,37,14,0.3512019631748903,moderate support
+Seong Chan Hong,deuce,1,1,0,0.3699928570558309,low support
+Stan Wawrinka,deuce,31,19,12,0.3798700887441473,moderate support
+Stefanos Tsitsipas,deuce,57,41,16,0.42346292973527444,moderate support
+Strong Kirchheimer,deuce,2,0,2,0.3982847695755831,low support
+Tallon Griekspoor,deuce,59,38,21,0.25205273241940535,high support
+Taro Daniel,deuce,12,7,5,0.3805428064524036,low support
+Taylor Fritz,deuce,86,53,33,0.30295263454052196,high support
+Thanasi Kokkinakis,deuce,19,10,9,0.40535492355776576,low support
+Thiago Monteiro,ad,3,3,0,0.27739178372829815,low support
+Thiago Seyboth Wild,deuce,9,6,3,0.41307806995961593,low support
+Thijs Boogaard,deuce,6,3,3,0.3167262985522568,low support
+Timofey Skatov,deuce,20,19,1,0.3084881099835156,low support
+Tomas Machac,deuce,38,21,17,0.3682008564970399,moderate support
+Tomas Martin Etcheverry,deuce,23,12,11,0.41459625640235126,moderate support
+Tommy Paul,deuce,79,44,35,0.3535475654540285,high support
+Tristan Schoolkate,deuce,10,2,8,0.3441397546042706,low support
+Ugo Humbert,ad,50,36,14,0.23118099370342876,moderate support
+Ugo Humbert,deuce,2,1,1,0.3276470299077553,low support
+Yannick Hanfmann,deuce,11,7,4,0.3683111626205623,low support
+Yoshihito Nishioka,ad,10,8,2,0.2692782323252706,low support
+Zachary Svajda,deuce,6,2,4,0.43209845873517844,low support
+Zhizhen Zhang,deuce,7,3,4,0.28196226510070793,low support
+Zizou Bergs,deuce,20,12,8,0.43236192993378075,low support

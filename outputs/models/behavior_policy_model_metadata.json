@@ -1,0 +1,25 @@
+{
+  "train_start": "2022-01-01",
+  "train_end": "2023-12-31",
+  "feature_columns": [
+    "hitter",
+    "opponent",
+    "hitter_hand",
+    "hitter_is_server",
+    "side_proxy",
+    "shot_number_bucket",
+    "score_state",
+    "set_score",
+    "game_score",
+    "serve_number",
+    "serve_direction",
+    "previous_shot_family",
+    "previous_shot_direction",
+    "previous_shot_target_side",
+    "previous_shot_depth",
+    "previous_net_state",
+    "incoming_wing_proxy"
+  ],
+  "context": "fifth_shot_forehand_direction",
+  "model": "ridge-logistic-regression"
+}

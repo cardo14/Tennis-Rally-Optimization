@@ -8,6 +8,8 @@ matches = match_data[['match_id', 'Surface', 'Date']]
 
 data = points_data.merge(matches, on='match_id', how='left')
 
+print(data.head())
+
 data = data[data["Date"].astype(str).str.fullmatch(r"\d{8}")]
 
 data['Date'] = pd.to_datetime(data['Date'], format='%Y%m%d')
