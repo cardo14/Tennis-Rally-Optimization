@@ -287,6 +287,7 @@ print("\nModel saved to tennis_rnn.pth")
 # test on example rallies
 model.eval()
 print("\n" + "="*60)
+# wait can we use swingvision data, or like the data in this project moreso from real rallies?
 print("EXAMPLE RALLY ANALYSIS")
 print("="*60)
 
@@ -414,6 +415,8 @@ def find_breakeven_and_alternatives(rally_seq, model):
             current_advantage = current_prob - baseline_prob
             
             # Test ALL alternative shots from this position
+            # Brute force search method kind of, needs to be improved for time complexity
+            # Only 9 possible shots, so it's okay, but if there were more could be ineffective.
             alternative_results = []
             for shot_name, direction, encoding in all_shots:
                 alt_seq = rally_before + [encoding]
@@ -495,20 +498,21 @@ for rally_num in range(len(test_rallies)):
             breakeven_shots.append(result['shot_num'])
     
     if found_breakeven:
-        print(f"BREAKEVEN POINTS DETECTED at shot(s): {breakeven_shots}")
+        print(f"Breakeven points detected at shot(s): {breakeven_shots}")
         print(f"   (These shots DECREASED win probability)\n")
     else:
-        print("✓ No breakeven points - all shots increased win probability\n")
+        print("No breakeven points - all shots increased win probability\n")
     
     # Detailed shot-by-shot analysis
     for result in breakeven_results:
         shot_num = result['shot_num']
         shot_name = result['shot_name']
+        # work on breakeven analysis further 
         current_adv = result['current_advantage']
         
         # Format advantage display
         sign = '+' if current_adv >= 0 else ''
-        status = "✗ DISADVANTAGEOUS" if result['is_breakeven'] else "✓ Advantageous"
+        status = "Disadvantageous" if result['is_breakeven'] else "✓ Advantageous"
         
         print(f"Shot {shot_num}: {shot_name}")
         print(f"  Win prob: {result['baseline_prob']:.3f} → {result['current_prob']:.3f} ({sign}{current_adv:.3f})")
@@ -517,12 +521,12 @@ for rally_num in range(len(test_rallies)):
         # If breakeven, show the better alternative
         if result['is_breakeven']:
             best_alt = result['best_alternative']
-            print(f"  💡 BETTER OPTION: {best_alt['name']}")
-            print(f"     Would give: {result['baseline_prob']:.3f} → {best_alt['prob']:.3f} ({best_alt['advantage']:+.3f})")
-            print(f"     Improvement over actual: {best_alt['advantage'] - current_adv:+.3f}")
+            print(f" BETTER OPTION: {best_alt['name']}")
+            print(f" Would give: {result['baseline_prob']:.3f} → {best_alt['prob']:.3f} ({best_alt['advantage']:+.3f})")
+            print(f"  Improvement over actual: {best_alt['advantage'] - current_adv:+.3f}")
             
             # Show top 3 alternatives
-            print(f"  📊 Top 3 alternatives:")
+            print(f" Top 3 alternatives:")
             for i, alt in enumerate(result['all_alternatives'][:3]):
                 if alt['is_current']:
                     print(f"     {i+1}. {alt['name']}: {alt['advantage']:+.3f} ← ACTUAL SHOT")
@@ -555,3 +559,7 @@ print("\n" + "="*60)
 
 # Graphics from separate file
 viz.generate_all_visualizations(dataset, test_rallies, model)
+
+# work on making model more accurate / understanding longer rallies !
+# Player speific grouping, swingvision data, filtering out data for very short rallies :)s
+# breakeven pt - reading papers, change within context of a point
