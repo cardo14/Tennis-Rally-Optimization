@@ -204,6 +204,51 @@ def build_forehand_direction_dataset(shot_df: pd.DataFrame, shot_index: int = 5)
         & (shot_df["side_proxy_confidence"] == "high")
     ].copy()
     dataset["action_dtl"] = (dataset["action"] == "DTL").astype(int)
+    dataset = add_match_local_exposure_features(dataset)
     dataset["context_name"] = "fifth_shot_forehand_direction"
     return dataset.reset_index(drop=True)
 
+
+def add_match_local_exposure_features(dataset: pd.DataFrame, recent_window: int = 8) -> pd.DataFrame:
+    """Add only pre-decision, match-local action exposure features.
+
+    Exposure is computed within the same match, hitter, opponent, and side-proxy
+    context. The current row's action is never included in its own features.
+    """
+    if dataset.empty:
+        return dataset.copy()
+
+    exposure_df = dataset.sort_values(["match_id", "hitter", "opponent", "side_proxy", "point_number"]).copy()
+    exposure_df["action_dtl"] = (exposure_df["action"] == "DTL").astype(int)
+
+    feature_frames = []
+    group_columns = ["match_id", "hitter", "opponent", "side_proxy"]
+    for _, group in exposure_df.groupby(group_columns, sort=False, dropna=False):
+        group = group.sort_values("point_number").copy()
+        prior_count = pd.Series(range(len(group)), index=group.index, dtype=float)
+        prior_dtl_count = group["action_dtl"].cumsum().shift(fill_value=0).astype(float)
+        prior_cc_count = prior_count - prior_dtl_count
+
+        shifted_actions = group["action_dtl"].shift()
+        recent_dtl_count = (
+            shifted_actions.rolling(window=recent_window, min_periods=1).sum().fillna(0.0).astype(float)
+        )
+        recent_context_count = (
+            shifted_actions.rolling(window=recent_window, min_periods=1).count().fillna(0.0).astype(float)
+        )
+
+        group["match_prior_context_count"] = prior_count
+        group["match_prior_dtl_count"] = prior_dtl_count
+        group["match_prior_cc_count"] = prior_cc_count
+        group["match_prior_dtl_rate"] = (prior_dtl_count / prior_count.where(prior_count > 0)).fillna(0.5)
+        group["recent_context_count"] = recent_context_count
+        group["recent_dtl_count"] = recent_dtl_count
+        group["recent_cc_count"] = recent_context_count - recent_dtl_count
+        group["recent_dtl_rate"] = (
+            recent_dtl_count / recent_context_count.where(recent_context_count > 0)
+        ).fillna(0.5)
+        group["has_match_exposure"] = (prior_count > 0).astype(int)
+        group["has_recent_exposure"] = (recent_context_count > 0).astype(int)
+        feature_frames.append(group)
+
+    return pd.concat(feature_frames).sort_index()

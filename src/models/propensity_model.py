@@ -28,6 +28,16 @@ PROPENSITY_FEATURES = [
     "previous_shot_depth",
     "previous_net_state",
     "incoming_wing_proxy",
+    "match_prior_context_count",
+    "match_prior_dtl_count",
+    "match_prior_cc_count",
+    "match_prior_dtl_rate",
+    "recent_context_count",
+    "recent_dtl_count",
+    "recent_cc_count",
+    "recent_dtl_rate",
+    "has_match_exposure",
+    "has_recent_exposure",
 ]
 
 CATEGORICAL_FEATURES = [
@@ -51,6 +61,16 @@ NUMERIC_FEATURES = [
     "serve_direction",
     "previous_shot_direction",
     "previous_shot_depth",
+    "match_prior_context_count",
+    "match_prior_dtl_count",
+    "match_prior_cc_count",
+    "match_prior_dtl_rate",
+    "recent_context_count",
+    "recent_dtl_count",
+    "recent_cc_count",
+    "recent_dtl_rate",
+    "has_match_exposure",
+    "has_recent_exposure",
 ]
 
 
@@ -101,4 +121,3 @@ def fit_propensity_model(train_df: pd.DataFrame) -> dict[str, Any]:
 def predict_propensity(bundle: dict[str, Any], df: pd.DataFrame) -> pd.Series:
     probs = bundle["model"].predict_proba(df[bundle["feature_columns"]])[:, 1]
     return pd.Series(probs, index=df.index)
-

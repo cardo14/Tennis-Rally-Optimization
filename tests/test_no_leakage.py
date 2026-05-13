@@ -1,6 +1,7 @@
 import pandas as pd
 
-from src.features.state_builder import build_shot_level_table
+from src.features.opponent_response import build_opponent_response_dataset
+from src.features.state_builder import build_forehand_direction_dataset, build_shot_level_table
 
 
 def _points_with_same_prefix() -> pd.DataFrame:
@@ -54,3 +55,29 @@ def test_state_features_do_not_depend_on_future_shots():
 
     assert shot5.loc[0, comparable_columns].to_dict() == shot5.loc[1, comparable_columns].to_dict()
 
+
+def test_match_local_exposure_uses_only_prior_actions():
+    shot_df = build_shot_level_table(_points_with_same_prefix())
+    context_df = build_forehand_direction_dataset(shot_df, shot_index=5).sort_values("point_number")
+
+    assert context_df.loc[0, "match_prior_context_count"] == 0
+    assert context_df.loc[0, "recent_context_count"] == 0
+    assert context_df.loc[0, "recent_dtl_rate"] == 0.5
+    assert context_df.loc[1, "match_prior_context_count"] == 1
+    assert context_df.loc[1, "match_prior_dtl_count"] == 1
+    assert context_df.loc[1, "recent_context_count"] == 1
+    assert context_df.loc[1, "recent_dtl_rate"] == 1.0
+
+
+def test_opponent_response_features_attach_next_shot_and_placebo_separately():
+    shot_df = build_shot_level_table(_points_with_same_prefix())
+    context_df = build_forehand_direction_dataset(shot_df, shot_index=5)
+    response_df = build_opponent_response_dataset(context_df, shot_df).sort_values("point_number").reset_index(drop=True)
+
+    assert response_df.loc[0, "opponent_response_exists"] == 1
+    assert response_df.loc[0, "opponent_next_winner"] == 1
+    assert response_df.loc[0, "future_context_count"] == 1
+    assert response_df.loc[0, "future_dtl_rate"] == 1.0
+    assert response_df.loc[1, "opponent_response_exists"] == 1
+    assert response_df.loc[1, "opponent_next_error"] == 1
+    assert response_df.loc[1, "future_context_count"] == 0

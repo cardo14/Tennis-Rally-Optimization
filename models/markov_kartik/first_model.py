@@ -20,17 +20,29 @@ from src.evaluation.offline_policy_eval import (
 )
 from src.evaluation.overlap import overlap_summary
 from src.evaluation.regret import add_regret_columns
+from src.evaluation.sequence_model_comparison import evaluate_sequence_models
+from src.features.sequence_builder import build_next_shot_examples, build_rally_sequence_table
 from src.features.state_builder import (
     build_forehand_direction_dataset,
     build_shot_level_table,
     load_filtered_points,
 )
+from src.features.opponent_response import build_opponent_response_dataset
 from src.models.baseline_glm import fit_q_model, predict_q
 from src.models.calibration import calibration_summary, fit_isotonic_calibrator
+from src.models.next_shot_policy import NextShotPolicyModel, next_shot_confusion_table
+from src.models.opponent_adaptation import fit_opponent_adaptation_models, observed_response_summary
 from src.models.propensity_model import fit_propensity_model, predict_propensity
+from src.models.sequence_baselines import EmpiricalShotWinRateModel, MarkovPairWinRateModel
 from src.parsing.mcp_parser import parse_rally
 from src.parsing.validation import validate_points
 from src.reporting.recommendation_tables import build_player_recommendations
+from src.reporting.exposure_tables import build_recent_usage_q_contrast_table, build_recent_usage_q_table
+from src.reporting.player_adaptive_evaluation import (
+    add_shot_adaptive_evaluation_columns,
+    build_match_adaptive_evaluation,
+    build_player_adaptive_evaluation,
+)
 
 
 OUTPUT_TABLES = Path("outputs/tables")
@@ -59,6 +71,13 @@ def _save_frame(df: pd.DataFrame, path: Path) -> None:
     df.to_csv(path, index=False)
 
 
+def _sample_points(shot_df: pd.DataFrame, max_points: int, random_state: int) -> pd.DataFrame:
+    point_ids = pd.Series(shot_df["point_id"].unique())
+    if len(point_ids) > max_points:
+        point_ids = point_ids.sample(n=max_points, random_state=random_state)
+    return shot_df[shot_df["point_id"].isin(set(point_ids))].copy()
+
+
 def run_pipeline() -> dict[str, pd.DataFrame]:
     OUTPUT_TABLES.mkdir(parents=True, exist_ok=True)
     OUTPUT_MODELS.mkdir(parents=True, exist_ok=True)
@@ -71,6 +90,80 @@ def run_pipeline() -> dict[str, pd.DataFrame]:
 
     shot_df = build_shot_level_table(filtered_points)
     _save_frame(shot_df, INTERIM_DATA / "shot_level_table.csv")
+
+    sequence_train_source_df = _sample_points(
+        shot_df[shot_df["match_date"] < "2024-01-01"],
+        max_points=15000,
+        random_state=40,
+    )
+    sequence_test_source_df = _sample_points(
+        shot_df[shot_df["match_date"] >= "2024-01-01"],
+        max_points=7500,
+        random_state=41,
+    )
+    sequence_df = pd.concat(
+        [
+            build_rally_sequence_table(sequence_train_source_df),
+            build_rally_sequence_table(sequence_test_source_df),
+        ],
+        ignore_index=True,
+    )
+    _save_frame(sequence_df, INTERIM_DATA / "rally_sequence_table.csv")
+    sequence_train_df = sequence_df[sequence_df["match_date"] < "2024-01-01"].copy()
+    sequence_test_df = sequence_df[sequence_df["match_date"] >= "2024-01-01"].copy()
+    sequence_models = [EmpiricalShotWinRateModel(), MarkovPairWinRateModel()]
+    train_sequences = sequence_train_df["encoded_sequence"].tolist()
+    train_labels = sequence_train_df["server_win"].astype(int).tolist()
+    test_sequences = sequence_test_df["encoded_sequence"].tolist()
+    test_labels = sequence_test_df["server_win"].astype(int).tolist()
+    candidate_tokens = sorted({token for sequence in train_sequences for token in sequence})
+    for sequence_model in sequence_models:
+        sequence_model.fit(train_sequences, train_labels)
+    sequence_comparison_df = evaluate_sequence_models(sequence_models, test_sequences, test_labels, candidate_tokens)
+    _save_frame(sequence_comparison_df, OUTPUT_TABLES / "sequence_model_comparison.csv")
+
+    next_shot_train_source_df = _sample_points(
+        shot_df[shot_df["match_date"] < "2024-01-01"],
+        max_points=12000,
+        random_state=42,
+    )
+    next_shot_test_source_df = _sample_points(
+        shot_df[shot_df["match_date"] >= "2024-01-01"],
+        max_points=6000,
+        random_state=43,
+    )
+    next_shot_examples_df = pd.concat(
+        [
+            build_next_shot_examples(next_shot_train_source_df, max_examples=75000),
+            build_next_shot_examples(next_shot_test_source_df, max_examples=40000),
+        ],
+        ignore_index=True,
+    )
+    _save_frame(next_shot_examples_df, INTERIM_DATA / "next_shot_examples.csv")
+    next_shot_train_df = next_shot_examples_df[next_shot_examples_df["match_date"] < "2024-01-01"].copy()
+    next_shot_test_df = next_shot_examples_df[next_shot_examples_df["match_date"] >= "2024-01-01"].copy()
+    next_shot_policy = NextShotPolicyModel(alpha=0.0005, max_iter=1000)
+    next_shot_policy.fit(next_shot_train_df)
+    next_shot_policy_summary_df = next_shot_policy.evaluate(next_shot_test_df)
+    _save_frame(next_shot_policy_summary_df, OUTPUT_TABLES / "next_shot_policy_summary.csv")
+    next_shot_confusion_df = next_shot_confusion_table(next_shot_policy, next_shot_test_df)
+    _save_frame(next_shot_confusion_df, OUTPUT_TABLES / "next_shot_policy_confusion.csv")
+    joblib.dump(next_shot_policy, OUTPUT_MODELS / "next_shot_policy_model.joblib")
+    _write_model_metadata(
+        OUTPUT_MODELS / "next_shot_policy_model_metadata.json",
+        {
+            "train_start": str(next_shot_train_df["match_date"].min().date()),
+            "train_end": str(next_shot_train_df["match_date"].max().date()),
+            "train_examples_available": int(len(next_shot_train_df)),
+            "train_examples_used": int(len(next_shot_train_df)),
+            "test_start": str(next_shot_test_df["match_date"].min().date()),
+            "test_end": str(next_shot_test_df["match_date"].max().date()),
+            "test_examples_used": int(len(next_shot_test_df)),
+            "model": "sgd-logistic-next-shot-policy",
+            "source_inspiration": "origin/sai next_shot_model.py",
+            "parser_source": "src.parsing.mcp_parser via shot_level_table",
+        },
+    )
 
     context_df = build_forehand_direction_dataset(shot_df, shot_index=5)
     if context_df.empty:
@@ -195,12 +288,49 @@ def run_pipeline() -> dict[str, pd.DataFrame]:
     recommendation_df = build_player_recommendations(scored_test)
     _save_frame(recommendation_df, OUTPUT_TABLES / "player_recommendations.csv")
 
+    recent_usage_q_df = build_recent_usage_q_table(scored_test)
+    _save_frame(recent_usage_q_df, OUTPUT_TABLES / "recent_usage_q_summary.csv")
+    recent_usage_q_contrast_df = build_recent_usage_q_contrast_table(recent_usage_q_df)
+    _save_frame(recent_usage_q_contrast_df, OUTPUT_TABLES / "recent_usage_q_contrasts.csv")
+
+    response_df = build_opponent_response_dataset(scored_test, shot_df)
+    response_observed_df = observed_response_summary(response_df)
+    _save_frame(response_observed_df, OUTPUT_TABLES / "opponent_response_observed_summary.csv")
+    opponent_adaptation_df, opponent_adaptation_models = fit_opponent_adaptation_models(response_df)
+    _save_frame(opponent_adaptation_df, OUTPUT_TABLES / "opponent_adaptation_model_summary.csv")
+    shot_adaptive_eval_df = add_shot_adaptive_evaluation_columns(response_df, opponent_adaptation_df)
+    _save_frame(shot_adaptive_eval_df, INTERIM_DATA / "fifth_shot_forehand_opponent_response.csv")
+    player_adaptive_eval_df = build_player_adaptive_evaluation(shot_adaptive_eval_df)
+    _save_frame(player_adaptive_eval_df, OUTPUT_TABLES / "player_adaptive_evaluation.csv")
+    match_adaptive_eval_df = build_match_adaptive_evaluation(shot_adaptive_eval_df)
+    _save_frame(match_adaptive_eval_df, OUTPUT_TABLES / "match_adaptive_evaluation.csv")
+    joblib.dump(opponent_adaptation_models, OUTPUT_MODELS / "opponent_adaptation_models.joblib")
+    _write_model_metadata(
+        OUTPUT_MODELS / "opponent_adaptation_model_metadata.json",
+        {
+            "context": "fifth_shot_forehand_direction",
+            "model": "ridge-logistic-regression-with-match-fixed-effects",
+            "outcomes": list(opponent_adaptation_models.keys()),
+            "adaptation_term": "action_dtl x high_recent_dtl",
+            "placebo_term": "action_dtl x future_high_dtl",
+            "bootstrap_unit": "match_id",
+        },
+    )
+
     return {
         "validation_summary": validation_summary_df,
+        "sequence_model_comparison": sequence_comparison_df,
+        "next_shot_policy_summary": next_shot_policy_summary_df,
         "context_summary": context_summary_df,
         "calibration_metrics": calibration_metrics_df,
         "evaluation_summary": evaluation_summary_df,
         "player_recommendations": recommendation_df,
+        "recent_usage_q_summary": recent_usage_q_df,
+        "recent_usage_q_contrasts": recent_usage_q_contrast_df,
+        "opponent_response_observed": response_observed_df,
+        "opponent_adaptation": opponent_adaptation_df,
+        "player_adaptive_evaluation": player_adaptive_eval_df,
+        "match_adaptive_evaluation": match_adaptive_eval_df,
     }
 
 
