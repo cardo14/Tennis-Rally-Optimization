@@ -4,3 +4,19 @@ __pycache__/
 
 # Derived large artifacts
 data/interim/shot_level_table.csv
+data/interim/fifth_shot_forehand_opponent_response.csv
+data/interim/next_shot_examples.csv
+data/interim/rally_sequence_table.csv
+outputs/models/next_shot_policy_model.joblib
+outputs/models/next_shot_policy_model_metadata.json
+outputs/models/opponent_adaptation_model_metadata.json
+outputs/models/opponent_adaptation_models.joblib
+outputs/tables/match_adaptive_evaluation.csv
+outputs/tables/next_shot_policy_confusion.csv
+outputs/tables/next_shot_policy_summary.csv
+outputs/tables/opponent_adaptation_model_summary.csv
+outputs/tables/opponent_response_observed_summary.csv
+outputs/tables/player_adaptive_evaluation.csv
+outputs/tables/recent_usage_q_contrasts.csv
+outputs/tables/recent_usage_q_summary.csv
+outputs/tables/sequence_model_comparison.csv
