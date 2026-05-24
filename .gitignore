@@ -1,1 +1,6 @@
 venv/
+__pycache__/
+*.pyc
+
+# Derived large artifacts
+data/interim/shot_level_table.csv
