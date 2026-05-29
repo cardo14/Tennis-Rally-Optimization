@@ -4,3 +4,4 @@ __pycache__/
 
 # Derived large artifacts
 data/interim/shot_level_table.csv
+"outputs/tables/all_shot_q_model_output.csv" 
